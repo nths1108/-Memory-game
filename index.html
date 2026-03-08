@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>翻卡遊戲 - 古典雅緻版</title>
+    <title>翻卡遊戲 - 古典音韻版</title>
     <style>
         :root {
             --bg-color: #fdfaf6; /* 暖米紙色 */
@@ -26,11 +26,12 @@
             font-family: "PingFang TC", "Microsoft JhengHei", "Heiti TC", sans-serif;
             -webkit-user-select: none;
             user-select: none;
+            min-height: 100vh;
         }
 
         canvas {
             display: block;
-            touch-action: none;
+            touch-action: pan-y; 
         }
 
         /* UI 層控制 */
@@ -47,13 +48,13 @@
 
         .btn-group {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             pointer-events: auto;
         }
 
         button {
-            padding: 12px 24px;
-            font-size: 16px;
+            padding: 10px 18px;
+            font-size: 15px;
             border-radius: 12px;
             border: 1px solid rgba(197, 160, 89, 0.3);
             background: var(--btn-bg);
@@ -63,10 +64,18 @@
             font-weight: bold;
             transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
         button:active {
             transform: scale(0.95);
+        }
+
+        button.active {
+            background: var(--accent-gold);
+            color: white;
         }
 
         /* 編輯器彈窗 */
@@ -149,10 +158,11 @@
 
 <div id="ui-layer">
     <div class="btn-group">
-        <button onclick="toggleEditor()">📝 編輯題目</button>
+        <button id="bgmBtn" onclick="toggleBGM()">🎵 音樂關閉</button>
+        <button onclick="toggleEditor()">📝 編輯</button>
     </div>
     <div class="btn-group">
-        <button onclick="resetFlips()" style="background: var(--danger); color: white; border: none;">🔄 全部翻正</button>
+        <button onclick="resetFlips()" style="background: var(--danger); color: white; border: none;">🔄 全翻正</button>
     </div>
 </div>
 
@@ -162,17 +172,17 @@
         
         <div class="hint">快速載入預設題目：</div>
         <div class="quick-load">
-            <button class="btn-small" onclick="loadPreset(1)">🌸 月份花卉 (隨機)</button>
-            <button class="btn-small" onclick="loadPreset(2)">📜 詩詞節錄 (隨機)</button>
-            <button class="btn-small" onclick="loadPreset(3)">🔄 合併兩套 (隨機)</button>
+            <button class="btn-small" onclick="loadPreset(1)">🌸 月份花卉</button>
+            <button class="btn-small" onclick="loadPreset(2)">📜 詩詞節錄</button>
+            <button class="btn-small" onclick="loadPreset(3)">🔄 合併兩套</button>
         </div>
 
-        <div class="hint">或在下方手動修改 (格式：題目,答案)：</div>
+        <div class="hint">格式：題目,答案 (每行一組)</div>
         <textarea id="dataInput"></textarea>
         
         <div class="modal-footer">
             <button class="btn-cancel" onclick="toggleEditor()">取消</button>
-            <button class="btn-save" onclick="saveAndRestart()">儲存並重新開始</button>
+            <button class="btn-save" onclick="saveAndRestart()">儲存</button>
         </div>
     </div>
 </div>
@@ -184,11 +194,18 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// 音效控制
-let flipSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+// --- 音訊資源 ---
+// 翻卡音效
+const flipSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
 flipSound.load();
 
-// 已對調：正面花卉，背面月份
+// 背景音樂 (使用較輕快的古典/環境音樂)
+const bgm = new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3');
+bgm.loop = true;
+bgm.volume = 0.4;
+let isBgmPlaying = false;
+
+// 預設題目
 const defaultSet1 = [
     { q: "梅花", a: "正月" }, { q: "杏花", a: "二月" }, { q: "桃花", a: "三月" },
     { q: "牡丹", a: "四月" }, { q: "石榴", a: "五月" }, { q: "荷花", a: "六月" },
@@ -210,7 +227,7 @@ const defaultSet2 = [
 let rawData = [];
 let cards = [];
 
-/** 隨機洗牌函數 */
+/** 隨機洗牌 */
 function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -219,14 +236,30 @@ function shuffleArray(array) {
     return array;
 }
 
+/** 音樂切換 */
+function toggleBGM() {
+    const btn = document.getElementById('bgmBtn');
+    if (!isBgmPlaying) {
+        bgm.play().then(() => {
+            isBgmPlaying = true;
+            btn.textContent = "🎵 音樂開啟";
+            btn.classList.add('active');
+        }).catch(e => {
+            console.error("BGM 播放失敗:", e);
+        });
+    } else {
+        bgm.pause();
+        isBgmPlaying = false;
+        btn.textContent = "🎵 音樂關閉";
+        btn.classList.remove('active');
+    }
+}
+
 function loadData() {
-    const saved = localStorage.getItem('cardGame_data_v6');
+    const saved = localStorage.getItem('cardGame_data_v7');
     if (saved) {
-        try { 
-            rawData = JSON.parse(saved); 
-        } catch(e) { 
-            rawData = shuffleArray([...defaultSet1]); 
-        }
+        try { rawData = JSON.parse(saved); } 
+        catch(e) { rawData = shuffleArray([...defaultSet1]); }
     } else {
         rawData = shuffleArray([...defaultSet1]); 
     }
@@ -234,8 +267,10 @@ function loadData() {
 
 function setupGrid() {
     const screenW = window.innerWidth;
-    const isLandscape = screenW > 768;
-    const cols = isLandscape ? 4 : (screenW > 480 ? 3 : 2);
+    const isTablet = screenW >= 768;
+    const isMobile = screenW < 480;
+    
+    const cols = isTablet ? 4 : (isMobile ? 2 : 3);
     const padding = 20;
     const topMargin = 120;
     
@@ -244,10 +279,10 @@ function setupGrid() {
     const cardH = cardW * 1.35;
 
     const rows = Math.ceil(rawData.length / cols);
-    const totalHeight = topMargin + rows * (cardH + padding) + 80;
+    const totalHeightNeeded = topMargin + rows * (cardH + padding) + 100;
 
     canvas.width = screenW;
-    canvas.height = Math.max(window.innerHeight, totalHeight);
+    canvas.height = Math.max(window.innerHeight, totalHeightNeeded);
 
     cards = rawData.map((item, i) => {
         const col = i % cols;
@@ -275,7 +310,6 @@ function drawCard(card) {
     ctx.shadowBlur = 15;
     ctx.shadowOffsetY = 8;
 
-    const radius = 12;
     if (isBack) {
         const grad = ctx.createLinearGradient(-card.w/2, -card.h/2, card.w/2, card.h/2);
         grad.addColorStop(0, '#d63031');
@@ -286,7 +320,7 @@ function drawCard(card) {
     }
 
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(-card.w/2, -card.h/2, card.w, card.h, radius);
+    if (ctx.roundRect) ctx.roundRect(-card.w/2, -card.h/2, card.w, card.h, 12);
     else ctx.rect(-card.w/2, -card.h/2, card.w, card.h);
     ctx.fill();
 
@@ -300,7 +334,7 @@ function drawCard(card) {
     if (scaleX < 0) ctx.scale(-1, 1);
     
     ctx.fillStyle = isBack ? '#ffffff' : '#2d3436';
-    const fontSize = content.length > 8 ? card.w * 0.11 : card.w * 0.16;
+    const fontSize = content.length > 8 ? card.w * 0.12 : card.w * 0.16;
     ctx.font = `bold ${fontSize}px "PingFang TC"`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -327,10 +361,8 @@ function animate() {
 }
 
 function handleDown(e) {
-    if (flipSound) {
-        flipSound.play().then(() => { flipSound.pause(); }).catch(() => {});
-    }
-
+    // 第一次點擊時，若 BGM 未播放則啟動（可選，或由使用者手動點擊按鈕）
+    // 這裡主要負責觸發翻卡音效
     const rect = canvas.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -341,6 +373,8 @@ function handleDown(e) {
     cards.forEach(card => {
         if (mx > card.x && mx < card.x + card.w && my > card.y && my < card.y + card.h) {
             card.targetAngle = (card.targetAngle === 0) ? 180 : 0;
+            
+            // 播放音效
             if (flipSound) {
                 flipSound.currentTime = 0;
                 flipSound.play().catch(()=>{});
@@ -351,23 +385,19 @@ function handleDown(e) {
 
 function toggleEditor() {
     const overlay = document.getElementById('editor-overlay');
-    const isVisible = overlay.style.display === 'flex';
-    overlay.style.display = isVisible ? 'none' : 'flex';
-    if (!isVisible) {
+    overlay.style.display = overlay.style.display === 'flex' ? 'none' : 'flex';
+    if (overlay.style.display === 'flex') {
         document.getElementById('dataInput').value = rawData.map(d => `${d.q},${d.a}`).join('\n');
     }
 }
 
-/** 載入預設題目套件並洗牌 */
 function loadPreset(type) {
     let preset = [];
     if (type === 1) preset = [...defaultSet1];
     else if (type === 2) preset = [...defaultSet2];
     else if (type === 3) preset = [...defaultSet1, ...defaultSet2];
     
-    // 洗牌
     shuffleArray(preset);
-    
     document.getElementById('dataInput').value = preset.map(d => `${d.q},${d.a}`).join('\n');
 }
 
@@ -381,7 +411,7 @@ function saveAndRestart() {
 
     if (newData.length > 0) {
         rawData = newData;
-        localStorage.setItem('cardGame_data_v6', JSON.stringify(rawData));
+        localStorage.setItem('cardGame_data_v7', JSON.stringify(rawData));
         setupGrid();
         toggleEditor();
         window.scrollTo(0, 0);
@@ -394,6 +424,7 @@ function resetFlips() {
 
 canvas.addEventListener('pointerdown', handleDown);
 window.addEventListener('resize', setupGrid);
+window.addEventListener('orientationchange', () => setTimeout(setupGrid, 300));
 
 loadData();
 setupGrid();
