@@ -172,9 +172,9 @@
         
         <div class="hint">快速載入預設題目：</div>
         <div class="quick-load">
-            <button class="btn-small" onclick="loadPreset(1)">🌸 月份花卉</button>
-            <button class="btn-small" onclick="loadPreset(2)">📜 詩詞節錄</button>
-            <button class="btn-small" onclick="loadPreset(3)">🔄 合併兩套</button>
+            <button class="btn-small" onclick="loadPreset(1)">🌸 月份花卉 (隨機)</button>
+            <button class="btn-small" onclick="loadPreset(2)">📜 詩詞節錄 (隨機)</button>
+            <button class="btn-small" onclick="loadPreset(3)">🔄 合併兩套 (隨機)</button>
         </div>
 
         <div class="hint">格式：題目,答案 (每行一組)</div>
@@ -195,17 +195,15 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
 // --- 音訊資源 ---
-// 翻卡音效
 const flipSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
 flipSound.load();
 
-// 背景音樂 (使用較輕快的古典/環境音樂)
 const bgm = new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3');
 bgm.loop = true;
-bgm.volume = 0.4;
+bgm.volume = 0.3;
 let isBgmPlaying = false;
 
-// 預設題目
+// 預設題目 (已對調：正面花卉，背面月份)
 const defaultSet1 = [
     { q: "梅花", a: "正月" }, { q: "杏花", a: "二月" }, { q: "桃花", a: "三月" },
     { q: "牡丹", a: "四月" }, { q: "石榴", a: "五月" }, { q: "荷花", a: "六月" },
@@ -244,9 +242,7 @@ function toggleBGM() {
             isBgmPlaying = true;
             btn.textContent = "🎵 音樂開啟";
             btn.classList.add('active');
-        }).catch(e => {
-            console.error("BGM 播放失敗:", e);
-        });
+        }).catch(e => console.error(e));
     } else {
         bgm.pause();
         isBgmPlaying = false;
@@ -256,7 +252,7 @@ function toggleBGM() {
 }
 
 function loadData() {
-    const saved = localStorage.getItem('cardGame_data_v7');
+    const saved = localStorage.getItem('cardGame_data_v8');
     if (saved) {
         try { rawData = JSON.parse(saved); } 
         catch(e) { rawData = shuffleArray([...defaultSet1]); }
@@ -270,6 +266,7 @@ function setupGrid() {
     const isTablet = screenW >= 768;
     const isMobile = screenW < 480;
     
+    // 設定欄數
     const cols = isTablet ? 4 : (isMobile ? 2 : 3);
     const padding = 20;
     const topMargin = 120;
@@ -360,21 +357,28 @@ function animate() {
     requestAnimationFrame(animate);
 }
 
+/** 核心修正：觸控偵測機制 */
 function handleDown(e) {
-    // 第一次點擊時，若 BGM 未播放則啟動（可選，或由使用者手動點擊按鈕）
-    // 這裡主要負責觸發翻卡音效
+    // 解鎖行動裝置音訊
+    if (flipSound) {
+        flipSound.play().then(() => { flipSound.pause(); }).catch(() => {});
+    }
+
     const rect = canvas.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     
+    /** * 修正重點：
+     * rect.top 是相對於視窗頂部的位移，已經考慮了捲動。
+     * 因此 localY = clientY - rect.top 即為畫布內的正確座標。
+     * 不需要再加 window.scrollY。
+     */
     const mx = clientX - rect.left;
-    const my = (clientY - rect.top) + window.scrollY;
+    const my = clientY - rect.top;
 
     cards.forEach(card => {
         if (mx > card.x && mx < card.x + card.w && my > card.y && my < card.y + card.h) {
             card.targetAngle = (card.targetAngle === 0) ? 180 : 0;
-            
-            // 播放音效
             if (flipSound) {
                 flipSound.currentTime = 0;
                 flipSound.play().catch(()=>{});
@@ -411,7 +415,7 @@ function saveAndRestart() {
 
     if (newData.length > 0) {
         rawData = newData;
-        localStorage.setItem('cardGame_data_v7', JSON.stringify(rawData));
+        localStorage.setItem('cardGame_data_v8', JSON.stringify(rawData));
         setupGrid();
         toggleEditor();
         window.scrollTo(0, 0);
