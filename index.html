@@ -20,18 +20,19 @@
 
         body {
             margin: 0;
-            overflow-y: auto; 
+            /* 針對 12 張優化，通常不需要捲動 */
+            overflow: hidden; 
             background: var(--bg-color);
             background-image: radial-gradient(circle, #fdfaf6 0%, #f3ede2 100%);
             font-family: "PingFang TC", "Microsoft JhengHei", "Heiti TC", sans-serif;
             -webkit-user-select: none;
             user-select: none;
-            min-height: 100vh;
+            height: 100vh;
         }
 
         canvas {
             display: block;
-            touch-action: pan-y; 
+            touch-action: none; /* 防止瀏覽器預設捲動干擾 */
         }
 
         /* UI 層控制 */
@@ -203,7 +204,7 @@ bgm.loop = true;
 bgm.volume = 0.3;
 let isBgmPlaying = false;
 
-// 預設題目 (已對調：正面花卉，背面月份)
+// 預設題目
 const defaultSet1 = [
     { q: "梅花", a: "正月" }, { q: "杏花", a: "二月" }, { q: "桃花", a: "三月" },
     { q: "牡丹", a: "四月" }, { q: "石榴", a: "五月" }, { q: "荷花", a: "六月" },
@@ -224,6 +225,7 @@ const defaultSet2 = [
 
 let rawData = [];
 let cards = [];
+let startX = 0, startY = 0; // 用於偵測滑動還是點擊
 
 /** 隨機洗牌 */
 function shuffleArray(array) {
@@ -261,37 +263,63 @@ function loadData() {
     }
 }
 
+/** 核心修正：針對 12 張卡片做高度適應 */
 function setupGrid() {
     const screenW = window.innerWidth;
-    const isTablet = screenW >= 768;
-    const isMobile = screenW < 480;
+    const screenH = window.innerHeight;
     
-    // 設定欄數
-    const cols = isTablet ? 4 : (isMobile ? 2 : 3);
-    const padding = 20;
-    const topMargin = 120;
+    // 設定欄數與列數
+    const isLandscape = screenW > screenH;
+    let cols = isLandscape ? 4 : 3;
+    if (rawData.length <= 8 && !isLandscape) cols = 2; // 如果卡片少，則少欄一點
     
-    const availableWidth = screenW - (cols + 1) * padding;
-    const cardW = availableWidth / cols;
-    const cardH = cardW * 1.35;
-
     const rows = Math.ceil(rawData.length / cols);
-    const totalHeightNeeded = topMargin + rows * (cardH + padding) + 100;
+    const padding = 20;
+    const topMargin = 100;
+    const bottomPadding = 40;
+
+    // 計算符合寬度的高度上限與符合高度的寬度上限
+    const availableW = screenW - (cols + 1) * padding;
+    const availableH = screenH - topMargin - bottomPadding - (rows * padding);
+    
+    // 計算單張卡片的最大寬度與最大高度
+    let cardW = availableW / cols;
+    let cardH = availableH / rows;
+
+    // 強制維持 1:1.35 的比例，避免變形
+    if (cardH > cardW * 1.35) {
+        cardH = cardW * 1.35;
+    } else {
+        cardW = cardH / 1.35;
+    }
+
+    // 計算起始 X 以便置中
+    const gridTotalW = cols * cardW + (cols - 1) * padding;
+    const offsetX = (screenW - gridTotalW) / 2;
 
     canvas.width = screenW;
-    canvas.height = Math.max(window.innerHeight, totalHeightNeeded);
+    canvas.height = screenH;
 
-    cards = rawData.map((item, i) => {
+    // 更新或新增卡片 (保留現有狀態)
+    const newCards = rawData.map((item, i) => {
         const col = i % cols;
         const row = Math.floor(i / cols);
+        
+        // 尋找現有卡片以保留角度狀態
+        const existing = cards.find(c => c.id === item.q + item.a);
+        
         return {
+            id: item.q + item.a,
             q: item.q, a: item.a,
-            x: padding + col * (cardW + padding),
+            x: offsetX + col * (cardW + padding),
             y: topMargin + row * (cardH + padding),
             w: cardW, h: cardH,
-            angle: 0, targetAngle: 0
+            angle: existing ? existing.angle : 0,
+            targetAngle: existing ? existing.targetAngle : 0
         };
     });
+    
+    cards = newCards;
 }
 
 function drawCard(card) {
@@ -357,22 +385,30 @@ function animate() {
     requestAnimationFrame(animate);
 }
 
-/** 核心修正：觸控偵測機制 */
-function handleDown(e) {
-    // 解鎖行動裝置音訊
+/** 核心修正：觸控判定優化 */
+function handleStart(e) {
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    startX = clientX;
+    startY = clientY;
+
+    // 解鎖音效
     if (flipSound) {
         flipSound.play().then(() => { flipSound.pause(); }).catch(() => {});
     }
+}
+
+function handleEnd(e) {
+    const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+    const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+    
+    // 計算手指移動距離
+    const dist = Math.hypot(clientX - startX, clientY - startY);
+    
+    // 如果移動距離大於 10 像素，判定為滑動而非點擊，不翻牌
+    if (dist > 10) return;
 
     const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    /** * 修正重點：
-     * rect.top 是相對於視窗頂部的位移，已經考慮了捲動。
-     * 因此 localY = clientY - rect.top 即為畫布內的正確座標。
-     * 不需要再加 window.scrollY。
-     */
     const mx = clientX - rect.left;
     const my = clientY - rect.top;
 
@@ -418,7 +454,6 @@ function saveAndRestart() {
         localStorage.setItem('cardGame_data_v8', JSON.stringify(rawData));
         setupGrid();
         toggleEditor();
-        window.scrollTo(0, 0);
     }
 }
 
@@ -426,7 +461,9 @@ function resetFlips() {
     cards.forEach(c => c.targetAngle = 0);
 }
 
-canvas.addEventListener('pointerdown', handleDown);
+// 監聽互動事件
+canvas.addEventListener('pointerdown', handleStart);
+canvas.addEventListener('pointerup', handleEnd);
 window.addEventListener('resize', setupGrid);
 window.addEventListener('orientationchange', () => setTimeout(setupGrid, 300));
 
