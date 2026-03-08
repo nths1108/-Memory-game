@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>翻卡遊戲 - 古典雅緻版</title>
+    <style>
+        :root {
+            --bg-color: #fdfaf6; /* 暖米紙色 */
+            --card-front: #ffffff;
+            --card-back-start: #d63031; /* 山茶紅 */
+            --card-back-end: #8b0000;
+            --accent-gold: #c5a059; /* 古銅金 */
+            --text-main: #2d3436;
+            --text-light: #ffffff;
+            --btn-bg: rgba(255, 255, 255, 0.9);
+            --danger: #e17055;
+            --info: #3498db;
+        }
+
+        body {
+            margin: 0;
+            overflow-y: auto; 
+            background: var(--bg-color);
+            background-image: radial-gradient(circle, #fdfaf6 0%, #f3ede2 100%);
+            font-family: "PingFang TC", "Microsoft JhengHei", "Heiti TC", sans-serif;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+
+        /* UI 層控制 */
+        #ui-layer {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            pointer-events: auto;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(197, 160, 89, 0.3);
+            background: var(--btn-bg);
+            color: var(--text-main);
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            font-weight: bold;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backdrop-filter: blur(4px);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        /* 編輯器彈窗 */
+        #editor-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(45, 52, 54, 0.6);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(8px);
+        }
+
+        #editor-content {
+            background: #fff;
+            padding: 25px;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 550px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.3);
+            border: 1px solid var(--accent-gold);
+        }
+
+        #editor-content h2 { margin: 0 0 15px 0; color: var(--text-main); border-bottom: 2px solid var(--accent-gold); padding-bottom: 10px; font-size: 20px; }
+
+        .quick-load {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn-small {
+            padding: 8px 15px;
+            font-size: 14px;
+            background: #f1f2f6;
+            border: 1px solid #ddd;
+        }
+
+        textarea {
+            width: 100%;
+            flex: 1;
+            min-height: 200px;
+            margin: 10px 0;
+            padding: 15px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-sizing: border-box;
+            line-height: 1.6;
+            background: #fafafa;
+            font-family: inherit;
+        }
+
+        .hint {
+            font-size: 13px;
+            color: #636e72;
+            padding: 10px;
+            border-left: 4px solid var(--accent-gold);
+            background: #f9f9f9;
+            margin-bottom: 10px;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .btn-save { background: var(--accent-gold); color: white; }
+        .btn-cancel { background: #eee; }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div class="btn-group">
+        <button onclick="toggleEditor()">📝 編輯題目</button>
+    </div>
+    <div class="btn-group">
+        <button onclick="resetFlips()" style="background: var(--danger); color: white; border: none;">🔄 全部翻正</button>
+    </div>
+</div>
+
+<div id="editor-overlay">
+    <div id="editor-content">
+        <h2>題目內容編輯</h2>
+        
+        <div class="hint">快速載入預設題目：</div>
+        <div class="quick-load">
+            <button class="btn-small" onclick="loadPreset(1)">🌸 月份花卉 (隨機)</button>
+            <button class="btn-small" onclick="loadPreset(2)">📜 詩詞節錄 (隨機)</button>
+            <button class="btn-small" onclick="loadPreset(3)">🔄 合併兩套 (隨機)</button>
+        </div>
+
+        <div class="hint">或在下方手動修改 (格式：題目,答案)：</div>
+        <textarea id="dataInput"></textarea>
+        
+        <div class="modal-footer">
+            <button class="btn-cancel" onclick="toggleEditor()">取消</button>
+            <button class="btn-save" onclick="saveAndRestart()">儲存並重新開始</button>
+        </div>
+    </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+/** 遊戲核心變數 */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// 音效控制
+let flipSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+flipSound.load();
+
+// 已對調：正面花卉，背面月份
+const defaultSet1 = [
+    { q: "梅花", a: "正月" }, { q: "杏花", a: "二月" }, { q: "桃花", a: "三月" },
+    { q: "牡丹", a: "四月" }, { q: "石榴", a: "五月" }, { q: "荷花", a: "六月" },
+    { q: "鳳仙", a: "七月" }, { q: "桂花", a: "八月" }, { q: "菊花", a: "九月" },
+    { q: "芙蓉", a: "十月" }, { q: "山茶", a: "十一月" }, { q: "水仙", a: "十二月" }
+];
+
+const defaultSet2 = [
+    { q: "遙知不是雪，為有暗香來。", a: "梅花" },
+    { q: "借問酒家何處有？牧童遙指（　）村。", a: "杏花" },
+    { q: "竹外（　）三兩枝，春江水暖鴨先知。", a: "桃花" },
+    { q: "唯有（　）真國色，花開時節動京城。", a: "牡丹" },
+    { q: "接天蓮葉無窮碧，映日（　）別樣紅。", a: "荷花" },
+    { q: "（　）一月中秋滿，清香引出廣寒宮。", a: "桂花" },
+    { q: "採（　）東籬下，悠然見南山。", a: "菊" },
+    { q: "凌波仙子生塵襪，水上輕盈步微月。", a: "水仙" }
+];
+
+let rawData = [];
+let cards = [];
+
+/** 隨機洗牌函數 */
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+function loadData() {
+    const saved = localStorage.getItem('cardGame_data_v6');
+    if (saved) {
+        try { 
+            rawData = JSON.parse(saved); 
+        } catch(e) { 
+            rawData = shuffleArray([...defaultSet1]); 
+        }
+    } else {
+        rawData = shuffleArray([...defaultSet1]); 
+    }
+}
+
+function setupGrid() {
+    const screenW = window.innerWidth;
+    const isLandscape = screenW > 768;
+    const cols = isLandscape ? 4 : (screenW > 480 ? 3 : 2);
+    const padding = 20;
+    const topMargin = 120;
+    
+    const availableWidth = screenW - (cols + 1) * padding;
+    const cardW = availableWidth / cols;
+    const cardH = cardW * 1.35;
+
+    const rows = Math.ceil(rawData.length / cols);
+    const totalHeight = topMargin + rows * (cardH + padding) + 80;
+
+    canvas.width = screenW;
+    canvas.height = Math.max(window.innerHeight, totalHeight);
+
+    cards = rawData.map((item, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        return {
+            q: item.q, a: item.a,
+            x: padding + col * (cardW + padding),
+            y: topMargin + row * (cardH + padding),
+            w: cardW, h: cardH,
+            angle: 0, targetAngle: 0
+        };
+    });
+}
+
+function drawCard(card) {
+    card.angle += (card.targetAngle - card.angle) * 0.12;
+    const scaleX = Math.cos(card.angle * Math.PI / 180);
+    const isBack = Math.abs(card.angle % 360) > 90 && Math.abs(card.angle % 360) < 270;
+
+    ctx.save();
+    ctx.translate(card.x + card.w / 2, card.y + card.h / 2);
+    ctx.scale(scaleX, 1);
+
+    ctx.shadowColor = 'rgba(0,0,0,0.12)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetY = 8;
+
+    const radius = 12;
+    if (isBack) {
+        const grad = ctx.createLinearGradient(-card.w/2, -card.h/2, card.w/2, card.h/2);
+        grad.addColorStop(0, '#d63031');
+        grad.addColorStop(1, '#8b0000');
+        ctx.fillStyle = grad;
+    } else {
+        ctx.fillStyle = '#ffffff';
+    }
+
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-card.w/2, -card.h/2, card.w, card.h, radius);
+    else ctx.rect(-card.w/2, -card.h/2, card.w, card.h);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = isBack ? 'rgba(255,255,255,0.2)' : 'rgba(197, 160, 89, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const content = isBack ? card.a : card.q;
+    if (scaleX < 0) ctx.scale(-1, 1);
+    
+    ctx.fillStyle = isBack ? '#ffffff' : '#2d3436';
+    const fontSize = content.length > 8 ? card.w * 0.11 : card.w * 0.16;
+    ctx.font = `bold ${fontSize}px "PingFang TC"`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    if (content.length > 10) {
+        const words = content.split(/[，？。！]/).filter(s => s.length > 0);
+        if (words.length >= 2) {
+            ctx.fillText(words[0], 0, -fontSize * 0.7);
+            ctx.fillText(words[1], 0, fontSize * 0.7);
+        } else {
+            ctx.fillText(content, 0, 0);
+        }
+    } else {
+        ctx.fillText(content, 0, 0);
+    }
+
+    ctx.restore();
+}
+
+function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    cards.forEach(drawCard);
+    requestAnimationFrame(animate);
+}
+
+function handleDown(e) {
+    if (flipSound) {
+        flipSound.play().then(() => { flipSound.pause(); }).catch(() => {});
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    const mx = clientX - rect.left;
+    const my = (clientY - rect.top) + window.scrollY;
+
+    cards.forEach(card => {
+        if (mx > card.x && mx < card.x + card.w && my > card.y && my < card.y + card.h) {
+            card.targetAngle = (card.targetAngle === 0) ? 180 : 0;
+            if (flipSound) {
+                flipSound.currentTime = 0;
+                flipSound.play().catch(()=>{});
+            }
+        }
+    });
+}
+
+function toggleEditor() {
+    const overlay = document.getElementById('editor-overlay');
+    const isVisible = overlay.style.display === 'flex';
+    overlay.style.display = isVisible ? 'none' : 'flex';
+    if (!isVisible) {
+        document.getElementById('dataInput').value = rawData.map(d => `${d.q},${d.a}`).join('\n');
+    }
+}
+
+/** 載入預設題目套件並洗牌 */
+function loadPreset(type) {
+    let preset = [];
+    if (type === 1) preset = [...defaultSet1];
+    else if (type === 2) preset = [...defaultSet2];
+    else if (type === 3) preset = [...defaultSet1, ...defaultSet2];
+    
+    // 洗牌
+    shuffleArray(preset);
+    
+    document.getElementById('dataInput').value = preset.map(d => `${d.q},${d.a}`).join('\n');
+}
+
+function saveAndRestart() {
+    const text = document.getElementById('dataInput').value;
+    const lines = text.trim().split('\n');
+    const newData = lines.map(l => {
+        const parts = l.split(',');
+        return { q: parts[0]?.trim() || '', a: parts[1]?.trim() || '' };
+    }).filter(d => d.q !== '');
+
+    if (newData.length > 0) {
+        rawData = newData;
+        localStorage.setItem('cardGame_data_v6', JSON.stringify(rawData));
+        setupGrid();
+        toggleEditor();
+        window.scrollTo(0, 0);
+    }
+}
+
+function resetFlips() {
+    cards.forEach(c => c.targetAngle = 0);
+}
+
+canvas.addEventListener('pointerdown', handleDown);
+window.addEventListener('resize', setupGrid);
+
+loadData();
+setupGrid();
+animate();
+</script>
+</body>
+</html>
